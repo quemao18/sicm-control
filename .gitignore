@@ -41,3 +41,4 @@ testem.log
 .DS_Store
 Thumbs.db
 functions/ui-debug.log
+functions/firebase-debug.log
