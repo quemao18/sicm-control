@@ -9,6 +9,11 @@ const app = express();
 import bodyParser = require("body-parser");
 import {load} from "cheerio";
 import axios from "axios";
+import {initializeApp} from "firebase-admin/app";
+import {getFirestore} from "firebase-admin/firestore";
+
+initializeApp();
+
 // Parse Query String
 app.use(bodyParser.urlencoded({extended: false}));
 
@@ -22,14 +27,14 @@ app.use(cors({origin: true}));
 app.get("/", (req: Request, res: Response) => res.send("Api SICM"));
 
 
-app.get("/sicm", function(req: Request, res: Response) {
+app.get("/import", function(req: Request, res: Response) {
   (async () => {
-    const min = Number(req.query.min);
-    const max = Number(req.query.max);
-    const diff = max - min;
+    const start = Number(req.query.start);
+    const next = Number(req.query.next);
     const result: SicmData[] = [];
-    for (let i = 0; i <= diff; i++) {
-      const data = await getData(min, i);
+    for (let i = 0; i <= next; i++) {
+      const data = await getData(start, i);
+      await saveData(data);
       result.push(data);
     }
     res.send({
@@ -40,17 +45,25 @@ app.get("/sicm", function(req: Request, res: Response) {
   })();
 });
 
-async function getData(min: number, i: number): Promise<SicmData> {
+async function saveData(data: SicmData) {
   try {
-    const guid = min + i;
+    const db = getFirestore();
+    const docRef = db.collection("guides").doc(data.id.toString());
+    await docRef.set(data);
+    return true;
+  } catch (error) {
+    logger.error(error);
+    return false;
+  }
+}
+
+async function getData(min: number, i: number): Promise<SicmData> {
+  const guid = min + i;
+  try {
     const url = "http://www.sicm.gob.ve/g_4cguia.php?id_guia="+ guid;
     const response = await axios.get(url);
     const body = response.data;
     const $ = load(body);
-    const cod = $(
-        "body > table > tbody > tr:nth-child(3) > td >"+
-        "table > tbody > tr:nth-child(1) > td.texto12"
-    ).text();
     const status = $(
         "body > table > tbody > tr:nth-child(3) > td >"+
         "table > tbody > tr:nth-child(2) > td:nth-child(1)"
@@ -68,7 +81,7 @@ async function getData(min: number, i: number): Promise<SicmData> {
         "table > tbody > tr:nth-child(5) > td"
     ).text();
     return {
-      codGuide: cod.split(":")[1].trim(),
+      id: guid,
       status: status.split("(")[1].split(")")[0].trim(),
       createdAt: createdAt.split(":")[1].split(" ")[1].trim(),
       expirationDate: expirationDate.split(":")[1].trim(),
@@ -76,14 +89,16 @@ async function getData(min: number, i: number): Promise<SicmData> {
     };
   } catch (error) {
     logger.error(error);
-    return {};
+    return {
+      id: guid,
+    };
   }
 }
 
 export const api = functions.https.onRequest(app);
 
 export interface SicmData {
-  codGuide?: string | null;
+  id: number;
   status?: string | null;
   createdAt?: string | null;
   expirationDate?: string | null;
